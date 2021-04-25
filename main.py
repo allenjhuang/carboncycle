@@ -163,7 +163,7 @@ class CarbonCycle:
     def _populate_main(self):
         self.map_html = pn.pane.HTML(height=450, margin=(10, 100))
         self.emission_summary = pn.pane.HTML(style={"text-align": "center"}, margin=(10, 125), min_width=300)
-        self.weekday_summary = pn.pane.Markdown(style={"text-align": "center"}, max_width=215, sizing_mode='fixed', margin=(10, 125, 10, 0))
+        self.weekday_summary = pn.pane.Markdown(style={"text-align": "center"}, min_width=250, sizing_mode='fixed', margin=(10, 125, 10, 0))
         main_row = pn.Column(self.map_html, pn.Row(self.emission_summary, self.weekday_summary))
         self.dashboard.main.extend(main_row)
 
@@ -195,8 +195,13 @@ class CarbonCycle:
         )
         element = response["rows"][0]["elements"][0]
         distance = element["distance"]["value"]
-        idle_time = element.get("duration_in_traffic", {"value": 0})["value"]
-        return distance, idle_time
+        duration = element.get("duration", {"value": 0})["value"]
+        duration_traffic = element.get("duration_in_traffic", {"value": 0})["value"]
+        if duration_traffic > duration:
+            idle_time = duration_traffic - duration
+        else:
+            idle_time = 0
+        return distance, duration_traffic, idle_time
 
     def _calculate_emissions(self, distance, idle_time, efficiency, idling_efficiency):
         travel_gallons_used = distance.to(self.ureg.miles) / efficiency.to(
@@ -229,16 +234,16 @@ class CarbonCycle:
         str_distance = f"{distance.to(distance_units):.2fP}"
         str_efficiency_units = efficiency.units if self.efficiency_units_widget.value != "L/100 km" else "liter / 100 kilometer"
 
-        weekday_summary = """<br><br>Day | <br><br>Time | <br><br>Traffic\n-------- | -------- | --------\n"""
+        weekday_summary = """<br><br>Day | <br><br>Time | <br><br>ETA | <br><br>Idle\n--- | --- | --- | ---\n"""
         for i, day_label in enumerate(dt_emissions):
-            distance, idle_time = self.locs[self.loc_label][day_label]
-            distance = (distance * self.ureg("meter")).to("miles")
+            distance, eta, idle_time = self.locs[self.loc_label][day_label]
+            eta = (eta * self.ureg("seconds")).to("minutes")
             idle_time = (idle_time * self.ureg("seconds")).to("minutes")
             day, time = day_label.split(' ', maxsplit=1)
             if i % 2 == 0:
-                row_text = f"**{day}** | **{time}** | **{idle_time:~.2fP}**\n"
+                row_text = f"**{day}** | **{time}** | **{eta:~.1fP}** | **{idle_time:~.1fP}**\n"
             else:
-                row_text = f"{day} | {time} | {idle_time:~.2fP}\n"
+                row_text = f"{day} | {time} | {eta:~.1fP} | {idle_time:~.1fP}\n"
             weekday_summary += row_text
         self.weekday_summary.object = weekday_summary
 
@@ -323,10 +328,10 @@ class CarbonCycle:
                 day_label = dt.strftime("%a %I:%M %p")
 
                 if day_label in self.locs[self.loc_label]:
-                    distance, idle_time = self.locs[self.loc_label][day_label]
+                    distance, eta, idle_time = self.locs[self.loc_label][day_label]
                 else:
-                    distance, idle_time = self._call_gmap(dt, origin, destination)
-                    self.locs[self.loc_label][day_label] = distance, idle_time
+                    distance, eta, idle_time = self._call_gmap(dt, origin, destination)
+                    self.locs[self.loc_label][day_label] = distance, eta, idle_time
                 distance = distance * self.ureg.meters
                 idle_time = idle_time * self.ureg.seconds
                 emissions = self._calculate_emissions(distance, idle_time, efficiency, idling_efficiency)
