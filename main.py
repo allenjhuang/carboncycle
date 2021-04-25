@@ -112,6 +112,11 @@ class CarbonCycle:
                 value="05:30 PM",
             )
             self.leave_work_widgets.append(leave_work_widget)
+            self.interactive_widget_list.extend([
+                need_commute_widget,
+                leave_home_widget,
+                leave_work_widget
+            ])
 
             work_column = pn.Column(
                 need_commute_widget, leave_home_widget, leave_work_widget, name=day
@@ -156,9 +161,10 @@ class CarbonCycle:
         return car_column
 
     def _populate_main(self):
-        self.map_html = pn.pane.HTML(height=500, margin=(10, 100))
-        self.emission_summary = pn.pane.HTML(style={"text-align": "center"}, margin=(10, 100))
-        main_row = pn.Row(self.map_html, self.emission_summary)
+        self.map_html = pn.pane.HTML(height=450, margin=(10, 100))
+        self.emission_summary = pn.pane.HTML(style={"text-align": "center"}, margin=(10, 125), min_width=300)
+        self.weekday_summary = pn.pane.Markdown(style={"text-align": "center"}, max_width=215, sizing_mode='fixed', margin=(10, 125, 10, 0))
+        main_row = pn.Column(self.map_html, pn.Row(self.emission_summary, self.weekday_summary))
         self.dashboard.main.extend(main_row)
 
     @staticmethod
@@ -222,7 +228,21 @@ class CarbonCycle:
             co2_per_gallon = (CO2_PER_GALLON * self.ureg.lb).to("kg")
         str_distance = f"{distance.to(distance_units):.2fP}"
         str_efficiency_units = efficiency.units if self.efficiency_units_widget.value != "L/100 km" else "liter / 100 kilometer"
-        return f"""
+
+        weekday_summary = """<br><br>Day | <br><br>Time | <br><br>Traffic\n-------- | -------- | --------\n"""
+        for i, day_label in enumerate(dt_emissions):
+            distance, idle_time = self.locs[self.loc_label][day_label]
+            distance = (distance * self.ureg("meter")).to("miles")
+            idle_time = (idle_time * self.ureg("seconds")).to("minutes")
+            day, time = day_label.split(' ', maxsplit=1)
+            if i % 2 == 0:
+                row_text = f"**{day}** | **{time}** | **{idle_time:~.2fP}**\n"
+            else:
+                row_text = f"{day} | {time} | {idle_time:~.2fP}\n"
+            weekday_summary += row_text
+        self.weekday_summary.object = weekday_summary
+
+        self.emission_summary.object = f"""
             <div>
                 <h3>It's about {str_distance}s from {origin} to {destination}!</h3>
             </div>
@@ -238,15 +258,15 @@ class CarbonCycle:
                 {round_trip_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE WEEK ({num_days} DAYS) AVERAGES</strong><br>
+                <strong>ONE WEEK OF TRIPS TO WORK ({num_days} DAYS) AVERAGES</strong><br>
                 {week_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE MONTH ({num_days * 4} DAYS) AVERAGES</strong><br>
+                <strong>ONE MONTH OF TRIPS TO WORK ({num_days * 4} DAYS) AVERAGES</strong><br>
                 {month_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE YEAR ({num_days * 52} DAYS) AVERAGES</strong><br>
+                <strong>ONE YEAR OF TRIPS TO WORK ({num_days * 52} DAYS) AVERAGES</strong><br>
                 {year_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 20px; font-size: 12px;">
@@ -271,7 +291,7 @@ class CarbonCycle:
                 widget.param.watch(self._trigger_update, "value_throttled")
             else:
                 widget.param.watch(self._trigger_update, "value")
-        widget.param.trigger("value")
+        self.interactive_widget_list[0].param.trigger("value")
         self.match_hour_widget.param.watch(self._link_weekday_widgets, "value")
         self.match_hour_widget.param.trigger("value")
 
@@ -289,9 +309,9 @@ class CarbonCycle:
         self.map_html.object = self._format_map(origin, destination)
 
         dt_emissions = {}
-        loc_label = f"{self.home_widget.value} {self.work_widget.value}"
-        if loc_label not in self.locs:
-            self.locs[loc_label] = {}
+        self.loc_label = f"{self.home_widget.value} {self.work_widget.value}"
+        if self.loc_label not in self.locs:
+            self.locs[self.loc_label] = {}
 
         for widgets in zip(self.need_commute_widgets, self.leave_home_widgets, self.leave_work_widgets):
             need_commute_widget, leave_home_widget, leave_work_widget = widgets
@@ -300,13 +320,13 @@ class CarbonCycle:
             day_of_week = need_commute_widget.name.split(" ")[-1]
             for time in [leave_home_widget.value, leave_work_widget.value]:
                 dt = self._get_dt(day_of_week, time)
-                day_label = dt.strftime("%A %H:%M %p")
+                day_label = dt.strftime("%a %I:%M %p")
 
-                if day_label in self.locs[loc_label]:
-                    distance, idle_time = self.locs[loc_label][day_label]
+                if day_label in self.locs[self.loc_label]:
+                    distance, idle_time = self.locs[self.loc_label][day_label]
                 else:
                     distance, idle_time = self._call_gmap(dt, origin, destination)
-                    self.locs[loc_label][day_label] = distance, idle_time
+                    self.locs[self.loc_label][day_label] = distance, idle_time
                 distance = distance * self.ureg.meters
                 idle_time = idle_time * self.ureg.seconds
                 emissions = self._calculate_emissions(distance, idle_time, efficiency, idling_efficiency)
@@ -316,12 +336,17 @@ class CarbonCycle:
             with open(CACHED_FP, "wb") as f:
                 pickle.dump(self.locs, f)
 
-        self.emission_summary.object = self._format_summary(
+        self._format_summary(
             origin, destination, distance, efficiency, dt_emissions
         )
 
     def _get_dt(self, day_of_week, time):
-        hour, minute = map(int, time.split(" ")[0].split(":")[:2])
+        time, apm = time.split(" ")
+        hour, minute = map(int, time.split(":")[:2])
+        if apm == "PM":
+            hour += 12
+            if hour > 23:
+                hour -= 24
         now = datetime.today().replace(second=0, microsecond=0)
         tomorrow = now + timedelta(days=1)
         dt = self._next_weekday(
