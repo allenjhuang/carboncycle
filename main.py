@@ -122,7 +122,7 @@ class CarbonCycle:
                 need_commute_widget, leave_home_widget, leave_work_widget, name=day
             )
             work_list.append(work_column)
-        weekday_accordion = pn.Accordion(*work_list, toggle=True)
+        weekday_accordion = pn.Accordion(*work_list, toggle=True, active=[0])
 
         self.match_hour_widget = pn.widgets.Checkbox(name=" Match commute hours", value=True)
         weekday_column = pn.Column(
