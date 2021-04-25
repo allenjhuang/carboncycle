@@ -56,6 +56,8 @@ class CarbonCycle:
         self.ureg = UnitRegistry()
         self.gmap = googlemaps.Client(key=GMAP_API_KEY)
         self.interactive_widget_list = []
+        self.leave_home_links = []
+        self.leave_work_links =[]
         self._home_session_token = uuid.uuid4().hex
         self._work_session_token = uuid.uuid4().hex
 
@@ -139,7 +141,7 @@ class CarbonCycle:
             work_list.append(work_column)
         weekday_accordion = pn.Accordion(*work_list, toggle=True, active=[0])
 
-        self.match_hour_widget = pn.widgets.Checkbox(name=" Match commute hours across days", value=True)
+        self.match_hour_widget = pn.widgets.Checkbox(name=" Match commute hours across days", value=False)
         weekday_column = pn.Column(
             weekday_accordion,
             self.match_hour_widget,
