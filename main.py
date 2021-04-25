@@ -1,6 +1,7 @@
 import os
 import pickle
 import urllib
+import uuid
 from datetime import datetime, timedelta
 
 import panel as pn
@@ -55,6 +56,8 @@ class CarbonCycle:
         self.ureg = UnitRegistry()
         self.gmap = googlemaps.Client(key=GMAP_API_KEY)
         self.interactive_widget_list = []
+        self._home_session_token = uuid.uuid4().hex
+        self._work_session_token = uuid.uuid4().hex
 
         self.locs = {}
         if os.path.exists(CACHED_FP):
@@ -73,11 +76,23 @@ class CarbonCycle:
         self.dashboard.sidebar.append(sidebar_accordion)
 
     def _populate_address_column(self):
-        self.home_widget = pn.widgets.TextInput(
-            value="Natural History Building, Urbana, IL", placeholder="Home address"
+        self.home_widget = pn.widgets.AutocompleteInput(
+            name="Home address",
+            value="Natural History Building, Urbana, IL",
+            placeholder="Home address",
+            min_characters=3,
+            options=[],
+            case_sensitive=False,
+            restrict=False,
         )
-        self.work_widget = pn.widgets.TextInput(
-            value="Natural Resources Building, Urbana, IL", placeholder="Work address"
+        self.work_widget = pn.widgets.AutocompleteInput(
+            name="Work address",
+            value="Natural Resources Building, Urbana, IL",
+            placeholder="Work address",
+            min_characters=3,
+            options=[],
+            case_sensitive=False,
+            restrict=False,
         )
         self.interactive_widget_list.extend([
             self.home_widget,
@@ -179,7 +194,6 @@ class CarbonCycle:
         return map_iframe
 
     def _call_gmap(self, dt, origin, destination):
-        print(dt)
         response = self.gmap.distance_matrix(
             origins=origin,
             destinations=destination,
@@ -269,11 +283,33 @@ class CarbonCycle:
         for widget in self.interactive_widget_list:
             if isinstance(widget, pn.widgets.DiscreteSlider):
                 widget.param.watch(self._trigger_update, "value_throttled")
+            elif isinstance(widget, pn.widgets.AutocompleteInput):
+                if widget.name == "Home address":
+                    widget.param.watch(self._update_home_suggestions, "value_input")
+                elif widget.name == "Work address":
+                    widget.param.watch(self._update_work_suggestions, "value_input")
+                widget.param.watch(self._trigger_update, "value")
             else:
                 widget.param.watch(self._trigger_update, "value")
         widget.param.trigger("value")
         self.match_hour_widget.param.watch(self._link_weekday_widgets, "value")
         self.match_hour_widget.param.trigger("value")
+
+    def _update_home_suggestions(self, event):
+        if len(self.home_widget.value_input) >= 3:
+            self.home_widget.options = [suggestion["description"] for suggestion in self.gmap.places_autocomplete(
+                self.home_widget.value_input,
+                session_token=self._home_session_token,
+                offset=3,
+            )]
+
+    def _update_work_suggestions(self, event):
+        if len(self.work_widget.value_input) >= 3:
+            self.work_widget.options = [suggestion["description"] for suggestion in self.gmap.places_autocomplete(
+                self.work_widget.value_input,
+                session_token=self._work_session_token,
+                offset=3,
+            )]
 
     def _trigger_update(self, event):
         origin = self.home_widget.value
