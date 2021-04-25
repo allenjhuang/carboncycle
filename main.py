@@ -1,5 +1,7 @@
+import os
+import pickle
 import urllib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import panel as pn
 import googlemaps
@@ -10,20 +12,23 @@ pn.Accordion.margin = (0, -4)
 pn.config.sizing_mode = "stretch_width"
 pn.config.align = "center"
 
-with open(".secrets", "r") as f:
+THIS_FP = os.path.dirname(os.path.realpath(__file__))
+SECRETS_FP = os.path.join(THIS_FP, ".secrets")
+CACHED_FP = os.path.join(THIS_FP, "locs.pkl")
+with open(SECRETS_FP, "r") as f:
     GMAP_API_KEY = f.read()
 GMAP_FMT = (
     "https://www.google.com/maps/embed/v1/directions?mode=driving&key={key}&{query}"
 )
-DAYS_OF_WEEK = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-]
+DAYS_OF_WEEK = {
+    "Monday": 0,
+    "Tuesday": 1,
+    "Wednesday": 2,
+    "Thursday": 3,
+    "Friday": 4,
+    "Saturday": 5,
+    "Sunday": 6
+}
 HOURS_OF_DAY = [
     f"{hh:02d}:{mm:02d} {ap}"
     for ap in ["AM", "PM"]
@@ -50,6 +55,11 @@ class CarbonCycle:
         self.ureg = UnitRegistry()
         self.gmap = googlemaps.Client(key=GMAP_API_KEY)
         self.interactive_widget_list = []
+
+        self.locs = {}
+        if os.path.exists(CACHED_FP):
+            with open(CACHED_FP, "rb") as f:
+                self.locs.update(pickle.load(f))
 
     def _populate_sidebar(self):
         help_text = "<center>To get started, input both addresses!</center>"
@@ -82,12 +92,15 @@ class CarbonCycle:
 
     def _populate_weekday_column(self):
         work_list = []
+        self.need_commute_widgets = []
         self.leave_home_widgets = []
         self.leave_work_widgets = []
-        for day in DAYS_OF_WEEK:
+        for day in DAYS_OF_WEEK.keys():
             need_commute_widget = pn.widgets.Checkbox(
-                name=" Need to commute", value=not day.startswith("S")
+                name=f" Need to commute on {day}", value=not day.startswith("S")
             )
+            self.need_commute_widgets.append(need_commute_widget)
+
             leave_home_widget = pn.widgets.DiscreteSlider(
                 name="Leave home at", options=HOURS_OF_DAY, value="08:00 AM"
             )
@@ -165,21 +178,21 @@ class CarbonCycle:
         )
         return map_iframe
 
-    def _call_gmap(self, origin, destination):
+    def _call_gmap(self, dt, origin, destination):
+        print(dt)
         response = self.gmap.distance_matrix(
             origins=origin,
             destinations=destination,
             mode="driving",
             language="English",
-            departure_time=datetime.now(),
+            departure_time=dt,
         )
         element = response["rows"][0]["elements"][0]
-        distance = element["distance"]["value"] * self.ureg.meters
-        idle_time = element["duration_in_traffic"]["value"] * self.ureg.seconds
+        distance = element["distance"]["value"]
+        idle_time = element.get("duration_in_traffic", {"value": 0})["value"]
         return distance, idle_time
 
     def _calculate_emissions(self, distance, idle_time, efficiency, idling_efficiency):
-
         travel_gallons_used = distance.to(self.ureg.miles) / efficiency.to(
             self.ureg.miles / self.ureg.gallons
         )
@@ -191,47 +204,65 @@ class CarbonCycle:
         )
         return emissions
 
-    def _format_summary(self, origin, destination, distance, efficiency, emissions):
+    def _format_summary(self, origin, destination, distance, efficiency, dt_emissions):
+        num_days = int(len(dt_emissions) / 2)
+        week_emissions = sum(dt_emissions.values())
+        one_way_emissions = week_emissions / num_days / 2
+        round_trip_emissions = one_way_emissions * 2
+        month_emissions = 4 * week_emissions
+        year_emissions = 52 * week_emissions
+
+        co2_absorbed = (22 * self.ureg.kilogram)
+        if self.efficiency_units_widget.value == "mpg (US)":
+            distance_units = self.ureg.miles
+            co2_absorbed = co2_absorbed.to("lb")
+            co2_per_gallon = CO2_PER_GALLON * self.ureg.lb
+        else:
+            distance_units = self.ureg.km
+            co2_per_gallon = (CO2_PER_GALLON * self.ureg.lb).to("kg")
+        str_distance = f"{distance.to(distance_units):.2fP}"
         str_efficiency_units = efficiency.units if self.efficiency_units_widget.value != "L/100 km" else "liter / 100 kilometer"
         return f"""
             <div>
-                It's about {distance.to(self.ureg.miles):.2fP} from {origin} (A) to {destination} (B)!
+                <h3>It's about {str_distance}s from {origin} to {destination}!</h3>
             </div>
             <div style="margin-top: 20px;">
-                At {efficiency.magnitude:.0f} {str_efficiency_units}...
+                If your automobile runs at {efficiency.magnitude:.0f} {str_efficiency_units}:
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE-WAY TRIP</strong><br>
-                {emissions:~.2fP} of CO2
+                <strong>ONE-WAY TRIP AVERAGES</strong><br>
+                {one_way_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ROUND TRIP</strong><br>
-                {2 * emissions:~.2fP} of CO2
+                <strong>ROUND TRIP AVERAGES</strong><br>
+                {round_trip_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE WEEK (7 DAYS)</strong><br>
-                {7 * 2 * emissions:~.2fP} of CO2
+                <strong>ONE WEEK ({num_days} DAYS) AVERAGES</strong><br>
+                {week_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE MONTH (30 DAYS)</strong><br>
-                {30 * 2 * emissions:~.2fP} of CO2
+                <strong>ONE MONTH ({num_days * 4} DAYS) AVERAGES</strong><br>
+                {month_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 10px;">
-                <strong>ONE YEAR (365 DAYS)</strong><br>
-                {365 * emissions:~.2fP} of CO2
+                <strong>ONE YEAR ({num_days * 52} DAYS) AVERAGES</strong><br>
+                {year_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 20px; font-size: 12px;">
-                Did you know that a mature tree absorbs about 22 kilograms of carbon dioxide a year from the atmosphere? <sup>1</sup>
+                Did you know that a mature tree absorbs about {co2_absorbed:~.2fP} of carbon dioxide a year from the atmosphere?
+                <sup><a href="https://www.eea.europa.eu/articles/forests-health-and-climate-change/key-facts/trees-help-tackle-climate-change" target="_blank">1</a></sup>
             </div>
             <div style="margin-top: 20px; font-size: 12px;">
-Our CO2 emissions formula: 19.60 * (distance / fuel_economy + idle_time * idling_fuel_usage)<br>
-19.60 pounds of CO2 are produced per gallon of gasoline. <sup>2</sup><br>
-Idle time in traffic consumes fuel as well! <sup>3</sup> <sup>4</sup>
-<br><br>
-<sup>2</sup>Source: https://www.eia.gov/environment/emissions/co2_vol_mass.php<br>
-<sup>3</sup>Source: https://www.energy.gov/eere/vehicles/fact-861-february-23-2015-idle-fuel-consumption-selected-gasoline-and-diesel-vehicles<br>
-<sup>4</sup>Source: https://www.anl.gov/sites/www/files/2018-02/idling_worksheet.pdf
-            </div>
+
+            Our CO<sub>2</sub> emissions formula: {co2_per_gallon.magnitude:.2f} * (distance / fuel_economy + time_in_traffic * idling_fuel_usage)<br>
+
+            {co2_per_gallon:~.2fP} of CO<sub>2</sub> are produced per gallon of gasoline.
+            <sup><a href="https://www.eia.gov/environment/emissions/co2_vol_mass.php" target="_blank">2</a></sup><br>
+
+            Idle time in traffic consumes fuel as well!
+            <sup><a href="https://www.energy.gov/eere/vehicles/fact-861-february-23-2015-idle-fuel-consumption-selected-gasoline-and-diesel-vehicles">3</a></sup>
+            <sup><a href="https://www.anl.gov/sites/www/files/2018-02/idling_worksheet.pdf" target="_blank">4</a></sup>
         """
 
     def _add_interactivity(self):
@@ -256,11 +287,54 @@ Idle time in traffic consumes fuel as well! <sup>3</sup> <sup>4</sup>
         idling_efficiency = self.idling_efficiency_widget.value * self.ureg(idling_efficiency_units)
 
         self.map_html.object = self._format_map(origin, destination)
-        distance, idle_time = self._call_gmap(origin, destination)
-        emissions = self._calculate_emissions(distance, idle_time, efficiency, idling_efficiency)
+
+        dt_emissions = {}
+        loc_label = f"{self.home_widget.value} {self.work_widget.value}"
+        if loc_label not in self.locs:
+            self.locs[loc_label] = {}
+
+        for widgets in zip(self.need_commute_widgets, self.leave_home_widgets, self.leave_work_widgets):
+            need_commute_widget, leave_home_widget, leave_work_widget = widgets
+            if not need_commute_widget.value:
+                continue
+            day_of_week = need_commute_widget.name.split(" ")[-1]
+            for time in [leave_home_widget.value, leave_work_widget.value]:
+                dt = self._get_dt(day_of_week, time)
+                day_label = dt.strftime("%A %H:%M %p")
+
+                if day_label in self.locs[loc_label]:
+                    distance, idle_time = self.locs[loc_label][day_label]
+                else:
+                    distance, idle_time = self._call_gmap(dt, origin, destination)
+                    self.locs[loc_label][day_label] = distance, idle_time
+                distance = distance * self.ureg.meters
+                idle_time = idle_time * self.ureg.seconds
+                emissions = self._calculate_emissions(distance, idle_time, efficiency, idling_efficiency)
+                dt_emissions[day_label] = emissions
+
+        if not os.path.exists(CACHED_FP):
+            with open(CACHED_FP, "wb") as f:
+                pickle.dump(self.locs, f)
+
         self.emission_summary.object = self._format_summary(
-            origin, destination, distance, efficiency, emissions
+            origin, destination, distance, efficiency, dt_emissions
         )
+
+    def _get_dt(self, day_of_week, time):
+        hour, minute = map(int, time.split(" ")[0].split(":")[:2])
+        now = datetime.today().replace(second=0, microsecond=0)
+        tomorrow = now + timedelta(days=1)
+        dt = self._next_weekday(
+            tomorrow, DAYS_OF_WEEK[day_of_week]
+        ).replace(hour=hour, minute=minute)
+        return dt
+
+    @staticmethod
+    def _next_weekday(dt, weekday):
+        days_ahead = weekday - dt.weekday()
+        if days_ahead <= 0: # Target day already happened this week
+            days_ahead += 7
+        return dt + timedelta(days_ahead)
 
     def _link_weekday_widgets(self, event):
         if event.new:
