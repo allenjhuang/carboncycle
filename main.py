@@ -102,12 +102,12 @@ class CarbonCycle:
             self.need_commute_widgets.append(need_commute_widget)
 
             leave_home_widget = pn.widgets.DiscreteSlider(
-                name="Leave home at", options=HOURS_OF_DAY, value="08:00 AM"
+                name=f"Leave home at", options=HOURS_OF_DAY, value="08:00 AM"
             )
             self.leave_home_widgets.append(leave_home_widget)
 
             leave_work_widget = pn.widgets.DiscreteSlider(
-                name="Leave work at",
+                name=f"Leave work at",
                 options=HOURS_OF_DAY,
                 value="05:30 PM",
             )
@@ -124,7 +124,7 @@ class CarbonCycle:
             work_list.append(work_column)
         weekday_accordion = pn.Accordion(*work_list, toggle=True, active=[0])
 
-        self.match_hour_widget = pn.widgets.Checkbox(name=" Match commute hours", value=True)
+        self.match_hour_widget = pn.widgets.Checkbox(name=" Match commute hours across days", value=True)
         weekday_column = pn.Column(
             weekday_accordion,
             self.match_hour_widget,
@@ -365,25 +365,37 @@ class CarbonCycle:
         if event.new:
             self.leave_home_links = [
                 self.leave_home_widgets[0].link(
-                    widget, value="value", bidirectional=True
+                    widget, value="value"
+                )
+                for widget in self.leave_home_widgets[1:]
+            ] + [
+                widget.link(
+                    self.leave_home_widgets[0], value="value"
                 )
                 for widget in self.leave_home_widgets[1:]
             ]
-            self.leave_home_widgets[0].param.trigger()
+            self.leave_home_widgets[0].param.trigger("value")
 
             self.leave_work_links = [
                 self.leave_work_widgets[0].link(
-                    widget, value="value", bidirectional=True
+                    widget, value="value"
+                )
+                for widget in self.leave_work_widgets[1:]
+            ] + [
+                widget.link(
+                    self.leave_work_widgets[0], value="value"
                 )
                 for widget in self.leave_work_widgets[1:]
             ]
-            self.leave_work_widgets[0].param.trigger()
+            self.leave_work_widgets[0].param.trigger("value")
         else:
-            for link in self.leave_home_links:
-                self.leave_home_widgets[0].param.unwatch(link)
+            for widget in self.leave_home_widgets:
+                for link in self.leave_home_links:
+                    widget.param.unwatch(link)
 
-            for link in self.leave_work_links:
-                self.leave_work_widgets[0].param.unwatch(link)
+            for widget in self.leave_work_widgets:
+                for link in self.leave_work_links:
+                    widget.param.unwatch(link)
 
     def view(self):
         self.dashboard = pn.template.MaterialTemplate(title="CARboncycle")
