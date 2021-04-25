@@ -270,7 +270,7 @@ class CarbonCycle:
                 {year_emissions:~.2fP} of CO<sub>2</sub>
             </div>
             <div style="margin-top: 20px; font-size: 12px;">
-                Did you know that a mature tree absorbs about {co2_absorbed:~.2fP} of carbon dioxide a year from the atmosphere?
+                Did you know that a mature tree absorbs about {co2_absorbed:~.2fP} of CO<sub>2</sub> a year from the atmosphere?
                 <sup><a href="https://www.eea.europa.eu/articles/forests-health-and-climate-change/key-facts/trees-help-tackle-climate-change" target="_blank">1</a></sup>
             </div>
             <div style="margin-top: 20px; font-size: 12px;">
