@@ -1,6 +1,6 @@
 # CARboncycle
 
-CARboncycle estimates CO2 emissions based on a typical work week.
+CARboncycle estimates CO2 emissions based on a typical work week's commute.
 
 Users enter their home and work address and then will easily be able to see their carbon footprint in a single trip, a roundtrip, work week, and more! They can further input their car's fuel efficiency and their work week to get a more accurate estimate, along with traffic time. The app kept in mind different countries' fuel efficiency units, thus users from all over the world can use the app effortlessly!
 

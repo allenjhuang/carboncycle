@@ -311,10 +311,10 @@ class CarbonCycle:
             if isinstance(widget, pn.widgets.DiscreteSlider):
                 widget.param.watch(self._trigger_update, "value_throttled")
             elif isinstance(widget, pn.widgets.AutocompleteInput):
-                if widget.name == "Home address":
-                    widget.param.watch(self._update_home_suggestions, "value_input")
-                elif widget.name == "Work address":
-                    widget.param.watch(self._update_work_suggestions, "value_input")
+                # if widget.name == "Home address":
+                #     widget.param.watch(self._update_home_suggestions, "value_input")
+                # elif widget.name == "Work address":
+                #     widget.param.watch(self._update_work_suggestions, "value_input")
                 widget.param.watch(self._trigger_update, "value")
             else:
                 widget.param.watch(self._trigger_update, "value")
@@ -339,6 +339,9 @@ class CarbonCycle:
             )]
 
     def _trigger_update(self, event):
+        self._home_session_token = uuid.uuid4().hex
+        self._work_session_token = uuid.uuid4().hex
+
         origin = self.home_widget.value
         destination = self.work_widget.value
 
