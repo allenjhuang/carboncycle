@@ -21,3 +21,6 @@ pip install -r requirements.txt
 panel serve main.py
 ```
 Then open the app on localhost:5006 on your browser!
+
+## BSC
+0xC4A513FCD35834c2D20a4A279889D2d30A348eb4
